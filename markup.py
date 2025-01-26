@@ -5,6 +5,7 @@ import random
 from random import random, randrange, randint
 import os
 import json
+import aiofiles
 
 messbutton = types.InlineKeyboardMarkup()
 
@@ -36,9 +37,13 @@ buttons = {
     'create_post':    types.InlineKeyboardButton(text='POST', callback_data='create_post'),
     'create_put':     types.InlineKeyboardButton(text='PUT', callback_data='create_put'),
     'create_delete':  types.InlineKeyboardButton(text='DELETE', callback_data='create_delete'),
-    'create_cancel':  types.InlineKeyboardButton(text='Очистить API', callback_data='create_cancel'),
+    'create_cancel':  types.InlineKeyboardButton(text='Отмена', callback_data='create_cancel'),
     'buy_menu':       types.InlineKeyboardButton(text='Улучшить подписку', callback_data='buy_menu'),
-    'menu':           types.InlineKeyboardButton(text='Главное меню', callback_data='start')
+    'menu':           types.InlineKeyboardButton(text='Главное меню', callback_data='start'),
+    'delete_method':  types.InlineKeyboardButton(text='Удалить метод', callback_data='delete_method'),
+    'add_method':     types.InlineKeyboardButton(text='Сделать ещё один метод', callback_data='add_method'),
+    'finish_api':     types.InlineKeyboardButton(text='Закончить создание API', callback_data='finish_api'),
+    'clear_api':      types.InlineKeyboardButton(text='Очистить всю API', callback_data='clear_api')
 }
 
 messages = {
@@ -52,32 +57,34 @@ messages = {
     'create_delete':   'Создание метода DELETE\n\nДля начала укажите тег, по которому после вашего адреса сайта/сервера будет срабатывать этот запрос, например "/", "/delete_value"',
     'name_func':       'Укажите имя функции, которая будет использоваться для определения действий, что нужно делать коду при вызове выбранного метода.',
     'return':          'Укажите возвращаемое значение (переменная, класс, json список и т.д.), которое должно вернуться при вызове метода.',
-    'arg_count':       'Укажите количество аргументов, которые принимает функция (может быть 0, если функция не принимает аргументы).\n\nЕсли вы выбрали метод GET то в любом случае отправляйте 0, потому что он не может принимать аргументы.',
+    'arg_count':       'Укажите количество аргументов, которые принимает функция (может быть 0, если функция не принимает аргументы).',
     'argN':            'Укажите аргумент в формате "тип_данных название".',
     'check_need':      'Нужно ли добавлять проверку какого-то аргумента в массиве, списке или классе? (Ответ Да/Нет)',
     'check_item_sum':  'Укажите название аргумента для проверки, название структуры, в которой нужно проверять наличие аргумента, и возвращаемое значение, если аргумент находится в структуре через пробел в формате "название_аргумента название_стуктуры возвращаемое значение"',
-    'help':            'Чтобы начать создавать api, напиши мне:\n/create_api\nЧтобы получить информацию по работе бота, перейди по этой ссылке: https://t.me/fastapibotguide'
+    'help':            'Чтобы начать создавать api, напиши мне:\n/create_api\nЧтобы получить информацию по работе бота, перейди по этой ссылке: https://t.me/fastapibotguide',
+    'resend':          '❓┃ Я тебя, увы, не понимаю. \nПроверьте написание команды/аргуметов. Или напишите /help.'
 }
 
 # Создание папки data, если она не существует
 if not os.path.exists('data'):
     os.makedirs('data')
 
-# Функции для работы с JSON файлами
-def create_json_file(filename, data):
-    with open(f'data/{filename}', 'w') as f:
-        json.dump(data, f)
+# Асинхронные функции для работы с JSON файлами
+async def create_json_file(filename, data):
+    async with aiofiles.open(f'data/{filename}', 'w') as f:
+        await f.write(json.dumps(data, indent=4))
 
-def read_json_file(filename):
-    with open(f'data/{filename}', 'r') as f:
-        return json.load(f)
+async def read_json_file(filename):
+    async with aiofiles.open(f'data/{filename}', 'r') as f:
+        contents = await f.read()
+        return json.loads(contents)
 
-def update_json_file(filename, data):
-    with open(f'data/{filename}', 'w') as f:
-        json.dump(data, f)
+async def update_json_file(filename, data):
+    async with aiofiles.open(f'data/{filename}', 'w') as f:
+        await f.write(json.dumps(data, indent=4))
 
-def delete_json_file(filename):
-    os.remove(f'data/{filename}')
+async def delete_json_file(filename):
+    await aiofiles.os.remove(f'data/{filename}')
 
 # #Меню оплаты
 # async def buy(bot, message):
@@ -319,32 +326,95 @@ async def send_message(bot, message, text, input_buttons = []):
 # async def send_photo(bot, message, img:Image=None):
 #         await bot.send_photo(message.chat.id, photo=img)
 
-async def api_work(message, stage, value=0, name=0):
+async def api_work(bot, message, stage, value="", name=""):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    json_filename = await get_value_from_bd("""api""", chat_id)
+    
+    async def update_json(data):
+        await update_json_file(json_filename, data)
+    
+    async def read_json():
+        return await read_json_file(json_filename)
+
+    data = await read_json()
+    current_method_index = data.get("current_method_index", 0)
+    current_method = f"method_{current_method_index}"
+
     match stage:
         case "none":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
-        case "GET":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
-        case "POST":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
-        case "PUT":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
-        case "DELETE":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
+            await set_value_in_bd("""stage_api""", stage, chat_id)
+        case "GET" | "POST" | "PUT" | "DELETE":
+            await set_value_in_bd("""stage_api""", stage, chat_id)
+            current_method_index += 1
+            current_method = f"method_{current_method_index}"
+            data["current_method_index"] = current_method_index
+            data[current_method] = {"method": stage}
+            await update_json(data)
         case "tag":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
+            await set_value_in_bd("""stage_api""", stage, chat_id)
+            data[current_method]["tag"] = name
+            await update_json(data)
         case "name_func":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
+            await set_value_in_bd("""stage_api""", stage, chat_id)
+            data[current_method]["name_func"] = value
+            await update_json(data)
         case "return":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
+            await set_value_in_bd("""stage_api""", stage, chat_id)
+            data[current_method]["return"] = value
+            await update_json(data)
         case "arg_count":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
+            await set_value_in_bd("""stage_api""", stage, chat_id)
+            data[current_method]["arg_count"] = int(value)
+            data[current_method]["args"] = []
+            await update_json(data)
         case "argN":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
+            data[current_method]["args"].append(value)
+            if len(data[current_method]["args"]) < data[current_method]["arg_count"]:
+                await set_value_in_bd("""stage_api""", "argN", chat_id)
+            else:
+                await set_value_in_bd("""stage_api""", "check_need", chat_id)
+            await update_json(data)
+        case "check_need":
+            if value.lower() == "да":
+                data[current_method]["check_need"] = True
+                await set_value_in_bd("""stage_api""", "check_item_sum", chat_id)
+            else:
+                await api_work(bot, message, "none")
+            await update_json(data)
         case "check_item_sum":
-            await set_value_in_bd("""stage_api""", stage, message.chat.id)
+            if data[current_method].get("check_need"):
+                data[current_method]["check_item_sum"] = value
+            await api_work(bot, message, "none")
+            await update_json(data)
         case _:
-            print("Долбоёб, почитай какие ты стейджи даёшь мне")
+            print("Invalid stage provided")
+
+async def delete_method(bot, message):
+    chat_id = message.chat.id
+    data = await read_json_file(await get_value_from_bd("""api""", chat_id))
+    current_method_index = data.get("current_method_index", 0)
+    current_method = f"method_{current_method_index}"
+    if current_method in data:
+        del data[current_method]
+        data["current_method_index"] -= 1
+        await update_json_file(await get_value_from_bd("""api""", chat_id), data)
+    await set_value_in_bd("""stage_api""", "none", chat_id)
+    await edit_message(bot, message, 'Метод удалён.\n\nВыберите метод:', input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'], last=True)
+
+async def add_method(bot, message):
+    await set_value_in_bd("""stage_api""", "none", message.chat.id)
+    await edit_message(bot, message, 'Выберите метод:', input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'], last=True)
+
+async def finish_api(bot, message):
+    await edit_message(bot, message, 'В каком формате вы хотите получить ваше API?', last=True)
+
+async def clear_api(bot, message):
+    chat_id = message.chat.id
+    json_filename = await get_value_from_bd("""api""", chat_id)
+    await create_json_file(json_filename, {"user_id": message.from_user.id, "chat_id": chat_id, "current_method_index": 0})
+    await set_value_in_bd("""stage_api""", "none", chat_id)
+    await edit_message(bot, message, 'API очищенна!', input_buttons=['api_menu', 'menu'], last=True)
 
 #Добавление пользователя в бд и создание JSON файла
 async def insert_user(message):
@@ -356,7 +426,7 @@ async def insert_user(message):
                                                     (message.from_user.id, message.chat.id, message.message_id, '', 0, 5, "none", json_filename))
                 await db.commit()
                 # Создание JSON файла
-                create_json_file(json_filename, {"user_id": message.from_user.id, "chat_id": message.chat.id})
+                await create_json_file(json_filename, {"user_id": message.from_user.id, "chat_id": message.chat.id})
 
 #Получаем значение из бд по колонке и id чата
 async def get_value_from_bd(colum, id): #значение colum ВСЕГДА должно идти в тройных двойных ковычках, тоесть """[colum]"""

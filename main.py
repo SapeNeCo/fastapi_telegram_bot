@@ -33,45 +33,76 @@ async def message_handler(message):
             user_id:int = await markup.get_value_from_bd("""user_id""", message.chat.id)
             await markup.send_message(bot, message, f'👾┃ Откладка для персонала \n┃Chat ID:{id} \n┃ User ID:{user_id}')
         case _:
-            print(await markup.get_value_from_bd("""stage_api""", message.chat.id))
-            match await markup.get_value_from_bd("""stage_api""", message.chat.id):
+            current_stage = await markup.get_value_from_bd("""stage_api""", message.chat.id)
+            data = await markup.read_json_file(await markup.get_value_from_bd("""api""", message.chat.id))
+            current_method_index = data.get("current_method_index", 0)
+            current_method = f"method_{current_method_index}"
+            match current_stage:
                 case "GET" | "POST" | "PUT" | "DELETE": 
                     if message.text[0] == "/":
-                        await markup.api_work(message, "tag", name=message.text)
-                        await markup.send_message(bot, message, markup.messages['name_func'])
+                        await markup.api_work(bot, message, "tag", name=message.text)
+                        await markup.send_message(bot, message, markup.messages['name_func'], input_buttons=['delete_method'])
                     else:
-                        await markup.send_message(bot, message, 'Тег может начинаться только со знака "/"!')
+                        await markup.send_message(bot, message, 'Тег может начинаться только со знака "/"!', input_buttons=['delete_method'])
                 case "tag":
                     if " " in message.text:
-                        await markup.send_message(bot, message, 'Название функции не может иметь пробела!')
+                        await markup.send_message(bot, message, 'Название функции не может иметь пробела!', input_buttons=['delete_method'])
                     else:
-                        await markup.api_work(message, "name_func", value=message.text)
-                        await markup.send_message(bot, message, markup.messages['return'])
+                        await markup.api_work(bot, message, "name_func", value=message.text)
+                        await markup.send_message(bot, message, markup.messages['return'], input_buttons=['delete_method'])
                 case "name_func":
-                    await markup.api_work(message, "return", value=message.text)
-                    await markup.send_message(bot, message, markup.messages['arg_count'])
+                    await markup.api_work(bot, message, "return", value=message.text)
+                    await markup.send_message(bot, message, markup.messages['arg_count'], input_buttons=['delete_method'])
                 case "return":
                     if message.text.isdigit() and " " not in message.text:
-                        await markup.api_work(message, "arg_count", value=message.text)
-                        await markup.send_message(bot, message, markup.messages['argN'])
+                        if int(message.text) == 0:
+                            if data[current_method]["method"] == "GET":
+                                await markup.api_work(bot, message, "none")
+                                await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                            else:
+                                await markup.set_value_in_bd("""stage_api""", "check_need", message.chat.id)
+                                await markup.send_message(bot, message, markup.messages['check_need'], input_buttons=['delete_method'])
+                        else:
+                            await markup.api_work(bot, message, "arg_count", value=message.text)
+                            await markup.send_message(bot, message, markup.messages['argN'], input_buttons=['delete_method'])
                     else:
-                        await markup.send_message(bot, message, 'Количество аргументов должно быть числом без пробелов!')
+                        await markup.send_message(bot, message, 'Количество аргументов должно быть числом без пробелов!', input_buttons=['delete_method'])
                 case "arg_count":
-                    await markup.api_work(message, "argN", value=message.text)
-                    await markup.send_message(bot, message, markup.messages['check_need'])
+                    await markup.api_work(bot, message, "argN", value=message.text)
+                    if data[current_method]["arg_count"] == 1:
+                        if data[current_method]["method"] == "GET":
+                            await markup.api_work(bot, message, "none")
+                            await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                        else:
+                            await markup.send_message(bot, message, markup.messages['check_need'], input_buttons=['delete_method'])
+                    else:
+                        await markup.send_message(bot, message, markup.messages['argN'], input_buttons=['delete_method'])
                 case "argN":
-                    await markup.api_work(message, "check_need", value=message.text)
-                    await markup.send_message(bot, message, markup.messages['check_item_sum'])
+                    await markup.api_work(bot, message, "argN", value=message.text)
+                    if len(data[current_method]["args"]) < data[current_method]["arg_count"]:
+                        if data[current_method]["arg_count"] - len(data[current_method]["args"]) <= 1:
+                            # Проверка метода GET
+                            if data[current_method]["method"] == "GET":
+                                await markup.api_work(bot, message, "none")
+                                await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                            else:
+                                await markup.send_message(bot, message, markup.messages['check_need'], input_buttons=['delete_method'])
+                        else:
+                            await markup.send_message(bot, message, markup.messages['argN'], input_buttons=['delete_method'])
+                    else:
+                        await markup.send_message(bot, message, markup.messages['check_need'], input_buttons=['delete_method'])
                 case "check_need":
                     if message.text.lower() == "да":
-                        await markup.api_work(message, "check_item_sum", value=message.text)
-                        await markup.send_message(bot, message, 'API успешно создано!')
+                        await markup.api_work(bot, message, "check_need", value=message.text)
+                        await markup.send_message(bot, message, markup.messages['check_item_sum'], input_buttons=['delete_method'])
+                    elif message.text.lower() == "нет":
+                        await markup.api_work(bot, message, "none", value=message.text)
+                        await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
                     else:
-                        await markup.api_work(message, "none", value=message.text)
-                        await markup.send_message(bot, message, 'API успешно создано!')
+                        await markup.send_message(bot, message, 'Введите либо "Да" либо "Нет"', input_buttons=['delete_method'])
                 case "check_item_sum":
-                    await markup.api_work(message, "none", value=message.text)
-                    await markup.send_message(bot, message, 'API успешно создано!')
+                    await markup.api_work(bot, message, "check_item_sum", value=message.text)
+                    await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
                 case _:
                     await markup.send_message(bot, message, markup.messages['resend'])
 
@@ -86,19 +117,28 @@ async def message_callback(call):
         case 'api_create':
             await markup.edit_message(bot, call.message, markup.messages['api_create'], input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'])
         case 'create_cancel':
+            await markup.delete_method(bot, call.message)
             await markup.edit_message(bot, call.message, markup.messages['api_menu'], input_buttons=['api_create', 'menu'])
         case 'create_get':
-            await markup.api_work(call.message, "GET")
+            await markup.api_work(bot, call.message, "GET")
             await markup.edit_message(bot, call.message, markup.messages['create_get'], input_buttons=['create_cancel'])
         case 'create_post':
-            await markup.api_work(call.message, "POST")
+            await markup.api_work(bot, call.message, "POST")
             await markup.edit_message(bot, call.message, markup.messages['create_post'], input_buttons=['create_cancel'])
         case 'create_put':
-            await markup.api_work(call.message, "PUT")
+            await markup.api_work(bot, call.message, "PUT")
             await markup.edit_message(bot, call.message, markup.messages['create_put'], input_buttons=['create_cancel'])
         case 'create_delete':
-            await markup.api_work(call.message, "DELETE")
+            await markup.api_work(bot, call.message, "DELETE")
             await markup.edit_message(bot, call.message, markup.messages['create_delete'], input_buttons=['create_cancel'])
+        case 'delete_method':
+            await markup.delete_method(bot, call.message)
+        case 'add_method':
+            await markup.add_method(bot, call.message)
+        case 'finish_api':
+            await markup.finish_api(bot, call.message)
+        case 'clear_api':
+            await markup.clear_api(bot, call.message)
         case 'profile':
             await markup.edit_message_profile(bot, call.message)
         # case 'packs':
