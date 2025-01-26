@@ -6,6 +6,7 @@ from random import random, randrange, randint
 import os
 import json
 import aiofiles
+import aiofiles.os
 
 messbutton = types.InlineKeyboardMarkup()
 
@@ -43,7 +44,9 @@ buttons = {
     'delete_method':  types.InlineKeyboardButton(text='Удалить метод', callback_data='delete_method'),
     'add_method':     types.InlineKeyboardButton(text='Сделать ещё один метод', callback_data='add_method'),
     'finish_api':     types.InlineKeyboardButton(text='Закончить создание API', callback_data='finish_api'),
-    'clear_api':      types.InlineKeyboardButton(text='Очистить всю API', callback_data='clear_api')
+    'clear_api':      types.InlineKeyboardButton(text='Очистить всю API', callback_data='clear_api'),
+    'api_in_file':    types.InlineKeyboardButton(text='В файле .py', callback_data='api_in_file'),
+    'api_in_message': types.InlineKeyboardButton(text='В сообщении', callback_data='api_in_message')
 }
 
 messages = {
@@ -62,7 +65,8 @@ messages = {
     'check_need':      'Нужно ли добавлять проверку какого-то аргумента в массиве, списке или классе? (Ответ Да/Нет)',
     'check_item_sum':  'Укажите название аргумента для проверки, название структуры, в которой нужно проверять наличие аргумента, и возвращаемое значение, если аргумент находится в структуре через пробел в формате "название_аргумента название_стуктуры возвращаемое значение"',
     'help':            'Чтобы начать создавать api, напиши мне:\n/create_api\nЧтобы получить информацию по работе бота, перейди по этой ссылке: https://t.me/fastapibotguide',
-    'resend':          '❓┃ Я тебя, увы, не понимаю. \nПроверьте написание команды/аргуметов. Или напишите /help.'
+    'resend':          '❓┃ Я тебя, увы, не понимаю. \nПроверьте написание команды/аргуметов. Или напишите /help.',
+    'premium_offer':   'Вы достигли лимита на создание методов. Пожалуйста, приобретите премиум версию для создания большего количества методов.'
 }
 
 # Создание папки data, если она не существует
@@ -403,11 +407,85 @@ async def delete_method(bot, message):
     await edit_message(bot, message, 'Метод удалён.\n\nВыберите метод:', input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'], last=True)
 
 async def add_method(bot, message):
-    await set_value_in_bd("""stage_api""", "none", message.chat.id)
-    await edit_message(bot, message, 'Выберите метод:', input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'], last=True)
+    chat_id = message.chat.id
+    data = await read_json_file(await get_value_from_bd("""api""", chat_id))
+    current_method_index = data.get("current_method_index", 0)
+    tries = int(await get_value_from_bd("""tries""", chat_id))
+    await set_value_in_bd("""stage_api""", "none", chat_id)
+    if tries != -1 and current_method_index >= tries:
+        await edit_message(bot, message, messages['premium_offer'], input_buttons=['buy_menu', 'menu'], last=True)
+    else:
+        await edit_message(bot, message, 'Выберите метод:', input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'], last=True)
 
 async def finish_api(bot, message):
-    await edit_message(bot, message, 'В каком формате вы хотите получить ваше API?', last=True)
+    chat_id = message.chat.id
+    data = await read_json_file(await get_value_from_bd("""api""", chat_id))
+    current_method_index = data.get("current_method_index", 0)
+    tries = int(await get_value_from_bd("""tries""", chat_id))
+    await set_value_in_bd("""stage_api""", "none", chat_id)
+    if tries != -1:
+        tries -= current_method_index
+        await set_value_in_bd("""tries""", tries, chat_id)
+    await edit_message(bot, message, 'В каком формате вы хотите получить ваше API?', input_buttons=['api_in_file', 'api_in_message'], last=True)
+
+async def generate_fastapi_code(data):
+    code = """
+from fastapi import FastAPI
+
+app = FastAPI()
+
+"""
+    for i in range(1, data["current_method_index"] + 1):
+        method_data = data[f"method_{i}"]
+        method = method_data["method"].lower()
+        tag = method_data["tag"]
+        name_func = method_data["name_func"]
+        return_value = method_data["return"]
+        args = method_data.get("args", [])
+        check_item_sum = method_data.get("check_item_sum", "")
+
+        # Generate function definition
+        func_def = f"@app.{method}(\"{tag}\")\n"
+        func_def += f"async def {name_func}("
+        func_def += ", ".join([f"{arg.split()[1]}: {arg.split()[0]}" for arg in args])
+        func_def += "):\n"
+
+        # Generate function body
+        func_body = ""
+        if check_item_sum:
+            check_arg, check_structure, check_return = check_item_sum.split()
+            func_body += f"    if {check_arg} in {check_structure}:\n"
+            func_body += f"        return {check_return}\n"
+        func_body += f"    return {return_value}\n"
+
+        # Combine function definition and body
+        code += func_def + func_body + "\n"
+
+    return code
+
+async def send_api_in_file(bot, message):
+    chat_id = message.chat.id
+    data = await read_json_file(await get_value_from_bd("""api""", chat_id))
+    code = await generate_fastapi_code(data)
+    filename = "your_api.py"
+    async with aiofiles.open(f'data/{filename}', 'w') as f:
+        await f.write(code)
+    await bot.send_document(chat_id, open(f'data/{filename}', 'rb'))
+    await aiofiles.os.remove(f'data/{filename}')
+    if int(await get_value_from_bd("""tries""", message.chat.id)) == 0:
+        await send_message(bot, message, 'Что-то ещё?', input_buttons = ['buy_menu', 'menu'])
+    else:
+        await send_message(bot, message, 'Что-то ещё?', input_buttons = ['add_method', 'clear_api', 'menu'])
+
+async def send_api_in_message(bot, message):
+    chat_id = message.chat.id
+    data = await read_json_file(await get_value_from_bd("""api""", chat_id))
+    code = await generate_fastapi_code(data)
+    await bot.send_message(chat_id, f'Ваше API:\n```python\n{code}\n```', parse_mode="Markdown")
+    if int(await get_value_from_bd("""tries""", message.chat.id)) == 0:
+        await send_message(bot, message, 'Что-то ещё?', input_buttons = ['buy_menu', 'menu'])
+    else:
+        await send_message(bot, message, 'Что-то ещё?', input_buttons = ['add_method', 'clear_api', 'menu'])
 
 async def clear_api(bot, message):
     chat_id = message.chat.id

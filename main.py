@@ -1,5 +1,6 @@
 import telebot
 from telebot.async_telebot import AsyncTeleBot
+from telebot import types
 import markup
 import asyncio
 from conflib import Configs, Config
@@ -23,7 +24,12 @@ async def message_handler(message):
         case '/help':
             await markup.send_message(bot, message, markup.messages['help'], input_buttons=['menu'])
         case '/create_api':
-            await markup.send_message(bot, message, markup.messages['api_create'], input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'])
+            tries = int(await markup.get_value_from_bd("""tries""", message.chat.id))
+            if tries == 0:
+                await markup.set_value_in_bd("""stage_api""", "none", message.chat.id)
+                await markup.send_message(bot, message, markup.messages['premium_offer'], input_buttons=['buy_menu', 'menu'])
+            else:
+                await markup.send_message(bot, message, markup.messages['api_create'], input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'])
         # case '/property':
         #     await markup.send_my_property(bot, message)
         # case '/modelslist':
@@ -58,7 +64,11 @@ async def message_handler(message):
                         if int(message.text) == 0:
                             if data[current_method]["method"] == "GET":
                                 await markup.api_work(bot, message, "none")
-                                await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                                if current_method_index - int(await markup.get_value_from_bd("""tries""", message.chat.id)) == 0:
+                                    await markup.send_message(bot, message, 'Метод создан!\n\nКоличество доступных методов закончилось на эту неделю, если хотите безлимитное использование нашего бота, то вы можете улучший подписку.\n\nТак же вы можете удалить последний метод и переписать его.',
+                                                               input_buttons=['buy_menu', 'delete_method', 'finish_api', 'clear_api', 'menu'])
+                                else:
+                                    await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api', 'menu'])
                             else:
                                 await markup.set_value_in_bd("""stage_api""", "check_need", message.chat.id)
                                 await markup.send_message(bot, message, markup.messages['check_need'], input_buttons=['delete_method'])
@@ -72,7 +82,11 @@ async def message_handler(message):
                     if data[current_method]["arg_count"] == 1:
                         if data[current_method]["method"] == "GET":
                             await markup.api_work(bot, message, "none")
-                            await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                            if current_method_index - int(await markup.get_value_from_bd("""tries""", message.chat.id)) == 0:
+                                await markup.send_message(bot, message, 'Метод создан!\n\nКоличество доступных методов закончилось на эту неделю, если хотите безлимитное использование нашего бота, то вы можете улучший подписку.\n\nТак же вы можете удалить последний метод и переписать его.', 
+                                                          input_buttons=['buy_menu', 'delete_method', 'finish_api', 'clear_api', 'menu'])
+                            else:
+                                await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api', 'menu'])
                         else:
                             await markup.send_message(bot, message, markup.messages['check_need'], input_buttons=['delete_method'])
                     else:
@@ -84,7 +98,11 @@ async def message_handler(message):
                             # Проверка метода GET
                             if data[current_method]["method"] == "GET":
                                 await markup.api_work(bot, message, "none")
-                                await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                                if current_method_index - int(await markup.get_value_from_bd("""tries""", message.chat.id)) == 0:
+                                    await markup.send_message(bot, message, 'Метод создан!\n\nКоличество доступных методов закончилось на эту неделю, если хотите безлимитное использование нашего бота, то вы можете улучший подписку.\n\nТак же вы можете удалить последний метод и переписать его.',
+                                                               input_buttons=['buy_menu', 'delete_method', 'finish_api', 'clear_api', 'menu'])
+                                else:
+                                    await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api', 'menu'])
                             else:
                                 await markup.send_message(bot, message, markup.messages['check_need'], input_buttons=['delete_method'])
                         else:
@@ -97,12 +115,20 @@ async def message_handler(message):
                         await markup.send_message(bot, message, markup.messages['check_item_sum'], input_buttons=['delete_method'])
                     elif message.text.lower() == "нет":
                         await markup.api_work(bot, message, "none", value=message.text)
-                        await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                        if current_method_index - int(await markup.get_value_from_bd("""tries""", message.chat.id)) == 0:
+                            await markup.send_message(bot, message, 'Метод создан!\n\nКоличество доступных методов закончилось на эту неделю, если хотите безлимитное использование нашего бота, то вы можете улучший подписку.\n\nТак же вы можете удалить последний метод и переписать его.',
+                                                       input_buttons=['buy_menu', 'delete_method', 'finish_api', 'clear_api', 'menu'])
+                        else:
+                            await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api', 'menu'])
                     else:
                         await markup.send_message(bot, message, 'Введите либо "Да" либо "Нет"', input_buttons=['delete_method'])
                 case "check_item_sum":
                     await markup.api_work(bot, message, "check_item_sum", value=message.text)
-                    await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api'])
+                    if current_method_index - int(await markup.get_value_from_bd("""tries""", message.chat.id)) == 0:
+                        await markup.send_message(bot, message, 'Метод создан!\n\nКоличество доступных методов закончилось на эту неделю, если хотите безлимитное использование нашего бота, то вы можете улучший подписку.\n\nТак же вы можете удалить последний метод и переписать его.',
+                                                    input_buttons=['buy_menu', 'delete_method', 'finish_api', 'clear_api', 'menu'])
+                    else:
+                        await markup.send_message(bot, message, 'Метод создан!', input_buttons=['add_method', 'delete_method', 'finish_api', 'clear_api', 'menu'])
                 case _:
                     await markup.send_message(bot, message, markup.messages['resend'])
 
@@ -115,7 +141,12 @@ async def message_callback(call):
         case 'api_menu':
             await markup.edit_message(bot, call.message, markup.messages['api_menu'], input_buttons=['api_create', 'menu'])
         case 'api_create':
-            await markup.edit_message(bot, call.message, markup.messages['api_create'], input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'])
+            tries = int(await markup.get_value_from_bd("""tries""", call.message.chat.id))
+            if tries == 0:
+                await markup.set_value_in_bd("""stage_api""", "none", call.message.chat.id)
+                await markup.edit_message(bot, call.message, markup.messages['premium_offer'], input_buttons=['buy_menu', 'menu'])
+            else:
+                await markup.edit_message(bot, call.message, markup.messages['api_create'], input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'])
         case 'create_cancel':
             await markup.delete_method(bot, call.message)
             await markup.edit_message(bot, call.message, markup.messages['api_menu'], input_buttons=['api_create', 'menu'])
@@ -137,6 +168,10 @@ async def message_callback(call):
             await markup.add_method(bot, call.message)
         case 'finish_api':
             await markup.finish_api(bot, call.message)
+        case 'api_in_file':
+            await markup.send_api_in_file(bot, call.message)
+        case 'api_in_message':
+            await markup.send_api_in_message(bot, call.message)
         case 'clear_api':
             await markup.clear_api(bot, call.message)
         case 'profile':
