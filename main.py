@@ -30,10 +30,6 @@ async def message_handler(message):
                 await markup.send_message(bot, message, markup.messages['premium_offer'], input_buttons=['buy_menu', 'menu'])
             else:
                 await markup.send_message(bot, message, markup.messages['api_create'], input_buttons=['create_get', 'create_post', 'create_put', 'create_delete', 'menu'])
-        # case '/property':
-        #     await markup.send_my_property(bot, message)
-        # case '/modelslist':
-        #     await markup.model_menu(bot, message)
         case '/get_id':
             id:int = await markup.get_value_from_bd("""id""", message.chat.id)
             user_id:int = await markup.get_value_from_bd("""user_id""", message.chat.id)
@@ -135,7 +131,6 @@ async def message_handler(message):
 #Слушаем Юзера
 @bot.callback_query_handler(func=lambda call: True)
 async def message_callback(call):
-    print(call.data)
     await markup.set_value_in_bd("""mess_id""", call.message.message_id, call.message.chat.id)
     match call.data:
         case 'api_menu':
@@ -176,26 +171,12 @@ async def message_callback(call):
             await markup.clear_api(bot, call.message)
         case 'profile':
             await markup.edit_message_profile(bot, call.message)
-        # case 'packs':
-        #     await markup.edit_message(bot, call.message, markup.messages['sells'],  buy_buttons=True,)
-        # case 'buy_packs':
-        #     await markup.edit_message(bot, call.message, 'Информация по работе Бота:',  input_buttons=['menu'], )
-        # case 'low':
-        #     await markup.edit_message(bot, call.message, markup.messages['low'], 'low', ['buy', 'menu'],  )
-        # case 'medium':
-        #     await markup.edit_message(bot, call.message, markup.messages['medium'],  'medium', ['buy', 'menu'], )
-        # case 'premium':
-        #     await markup.edit_message(bot, call.message,  markup.messages['premium'], 'premium', ['buy', 'menu'], )
-        # case 'buy':
-        #     await markup.buy(bot, call.message)
-        # case 'check':
-        #     await markup.check(bot, call.message)
+        case 'buy_menu':
+            await markup.buy(bot, call.message)
         case 'help':
             await markup.edit_message(bot, call.message, markup.messages['help'], parse_mode="Markdown", input_buttons=['menu'])
         case 'start':
             await markup.main_menu_edit(bot, call.message)
-        # case 'my_property':
-        #     await markup.get_my_property(bot, call.message)
         case '':
             for button in markup.buttons:
                 if call.data == markup.buttons[f'{button}'].callback_data: 
@@ -203,10 +184,16 @@ async def message_callback(call):
                 else:
                     pass
         case _:
-            # if '/model ' in call.data:
-            #     await markup.model_set(bot, call)
-            # else:
-                await markup.edit_message(bot, call.message, markup.messages['resend'])
+            await markup.edit_message(bot, call.message, markup.messages['resend'])
+
+@bot.pre_checkout_query_handler(func=lambda query: True)
+async def handle_pre_checkout_query(pre_checkout_query):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+@bot.message_handler(content_types=['successful_payment'])
+async def handle_successful_payment(message):
+    await markup.set_value_in_bd("""tries""", -1, message.chat.id)
+    await markup.send_message(bot, message, "Спасибо за подписку!\n\nТеперь вам доступно бесконечное количество методов для создания своей API!", input_buttons=['api_create', 'profile','menu'])
 
 asyncio.run(markup.init_bd())
 asyncio.run(bot.polling(none_stop=True))
