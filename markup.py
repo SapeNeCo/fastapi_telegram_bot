@@ -5,8 +5,10 @@ import random
 from random import random, randrange, randint
 import os
 import json
+import asyncio
 import aiofiles
 import aiofiles.os
+import datetime
 
 messbutton = types.InlineKeyboardMarkup()
 
@@ -16,12 +18,14 @@ async def init_bd():
     async with aiosqlite.connect('bot.db', check_same_thread=False) as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id   BIGINT,
-            id        BIGINT,
-            mess_id   BIGINT,
-            tries     INT,
-            stage_api TEXT,
-            api       TEXT
+            user_id       BIGINT,
+            id            BIGINT,
+            mess_id       BIGINT,
+            tries         INT,
+            stage_api     TEXT,
+            api           TEXT,
+            base_days     INT,
+            premium_days  INT
         )""")
         await db.commit()
 
@@ -44,7 +48,7 @@ buttons = {
     'api_in_file':    types.InlineKeyboardButton(text='В файле .py', callback_data='api_in_file'),
     'api_in_message': types.InlineKeyboardButton(text='В сообщении', callback_data='api_in_message'),
     'buy_menu':       types.InlineKeyboardButton(text='Улучшить подписку', callback_data='buy_menu'),
-    'buy':            types.InlineKeyboardButton(text='Заплатить 1 XTR', pay=True),
+    'buy':            types.InlineKeyboardButton(text='Заплатить 100 XTR', pay=True),
     'menu':           types.InlineKeyboardButton(text='Главное меню', callback_data='start')
 }
 
@@ -93,8 +97,8 @@ async def delete_json_file(filename):
 async def buy(bot, message):
     messbutton = types.InlineKeyboardMarkup()
     messbutton.add(buttons['buy'])
-    prices = [types.LabeledPrice(label="XTR", amount=1)]
-    await bot.send_invoice(message.chat.id, "Улучший подписку", "Стоимость улучшения подписки: 1 звезда!", "subscribe_payload", "", "XTR", prices, reply_markup=messbutton)
+    prices = [types.LabeledPrice(label="XTR", amount=100)]
+    await bot.send_invoice(message.chat.id, "Улучшить подписку", "Стоимость улучшения подписки: 100 звёзд!", "subscribe_payload", "", "XTR", prices, reply_markup=messbutton)
 
 #Меню встречи
 async def main_menu(bot, message):
@@ -299,8 +303,14 @@ async def send_api_in_file(bot, message):
     await aiofiles.os.remove(f'data/{filename}')
     if int(await get_value_from_bd("""tries""", message.chat.id)) == 0:
         await send_message(bot, message, 'Что-то ещё?', input_buttons = ['buy_menu', 'menu'])
+        await create_json_file(await get_value_from_bd("""api""", chat_id), {"user_id": message.from_user.id, "chat_id": chat_id, "current_method_index": 0})
     else:
-        await send_message(bot, message, 'Что-то ещё?', input_buttons = ['add_method', 'clear_api', 'menu'])
+        input_buttons = ['add_method', 'menu']
+        if int(await get_value_from_bd("""tries""", message.chat.id)) == -1:
+            input_buttons.insert(2, 'clear_api')
+        else:
+            await create_json_file(await get_value_from_bd("""api""", chat_id), {"user_id": message.from_user.id, "chat_id": chat_id, "current_method_index": 0})
+        await send_message(bot, message, 'Что-то ещё?', input_buttons=input_buttons)
 
 async def send_api_in_message(bot, message):
     chat_id = message.chat.id
@@ -309,8 +319,14 @@ async def send_api_in_message(bot, message):
     await bot.send_message(chat_id, f'Ваше API:\n```python\n{code}\n```', parse_mode="Markdown")
     if int(await get_value_from_bd("""tries""", message.chat.id)) == 0:
         await send_message(bot, message, 'Что-то ещё?', input_buttons = ['buy_menu', 'menu'])
+        await create_json_file(await get_value_from_bd("""api""", chat_id), {"user_id": message.from_user.id, "chat_id": chat_id, "current_method_index": 0})
     else:
-        await send_message(bot, message, 'Что-то ещё?', input_buttons = ['add_method', 'clear_api', 'menu'])
+        input_buttons = ['add_method', 'menu']
+        if int(await get_value_from_bd("""tries""", message.chat.id)) == -1:
+            input_buttons.insert(2, 'clear_api')
+        else:
+            await create_json_file(await get_value_from_bd("""api""", chat_id), {"user_id": message.from_user.id, "chat_id": chat_id, "current_method_index": 0})
+        await send_message(bot, message, 'Что-то ещё?', input_buttons=input_buttons)
 
 async def clear_api(bot, message):
     chat_id = message.chat.id
@@ -325,8 +341,8 @@ async def insert_user(message):
         async with db.execute("""SELECT * FROM users WHERE id = ?""", (message.chat.id,)) as cursor:
             if await cursor.fetchone() is None:
                 json_filename = f"{message.from_user.id}_{message.chat.id}.json"
-                await db.execute("""INSERT INTO users (user_id, id, mess_id, tries, stage_api, api) VALUES (?, ?, ?, ?, ?, ?)""",
-                                                    (message.from_user.id, message.chat.id, message.message_id, 5, "none", json_filename))
+                await db.execute("""INSERT INTO users (user_id, id, mess_id, tries, stage_api, api, base_days, premium_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                                                    (message.from_user.id, message.chat.id, message.message_id, 5, "none", json_filename, 7, -1))
                 await db.commit()
                 # Создание JSON файла
                 await create_json_file(json_filename, {"user_id": message.from_user.id, "chat_id": message.chat.id})
@@ -343,3 +359,34 @@ async def set_value_in_bd(colum, value, id): #значение colum ВСЕГД�
     async with aiosqlite.connect('bot.db', check_same_thread=False) as db:
         await db.execute(f"""UPDATE users SET {colum} = ? WHERE id = ?""", (value, id,))
         await db.commit()
+
+async def check_subscription(bot):
+    while True:
+        now = datetime.datetime.now()
+        if now.hour == 12 and now.minute == 0 and now.second == 0:
+            async with aiosqlite.connect('bot.db', check_same_thread=False) as db:
+                async with db.execute("SELECT user_id, id, base_days, premium_days FROM users") as cursor:
+                    async for row in cursor:
+                        user_id, chat_id, base_days, premium_days = row
+                        if premium_days == -1:
+                            continue
+                        elif premium_days == 0:
+                            await db.execute("UPDATE users SET base_days = 7, tries = 5, premium_days = -1 WHERE id = ?", (chat_id,))
+                            messbutton = types.InlineKeyboardMarkup()
+                            messbutton.add(buttons['buy_menu'])
+                            messbutton.add(buttons['menu'])
+                            await bot.send_message(chat_id, "Ваша подписка закончилась.\nПожалуйста, продлите подписку.", reply_markup=messbutton)
+                        elif premium_days > 0:
+                            await db.execute("UPDATE users SET premium_days = premium_days - 1 WHERE id = ?", (chat_id,))
+                        if base_days > 0:
+                            await db.execute("UPDATE users SET base_days = base_days - 1 WHERE id = ?", (chat_id,))
+                        elif base_days == 0:
+                            await db.execute("UPDATE users SET base_days = 7, tries = 5 WHERE id = ?", (chat_id,))
+                            messbutton = types.InlineKeyboardMarkup()
+                            messbutton.add(buttons['buy_menu'])
+                            messbutton.add(buttons['api_create'])
+                            messbutton.add(buttons['menu'])
+                            await bot.send_message(chat_id, "Вам снова доступны 5 методов для создания вашей API!\n\nЕсли не хотите ждать, то можете купить premium подписку!", reply_markup=messbutton)
+                await db.commit()
+            print("Succesfull bd update!")
+        await asyncio.sleep(1)
